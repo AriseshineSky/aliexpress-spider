@@ -89,6 +89,7 @@ Leave `.env` empty or use `--no-es` to write JSONL only.
 |----------|---------------|-------------|
 | Linux / macOS | `./scripts/verify.sh` | `./scripts/start.sh` |
 | Windows | `scripts\verify.bat` | `scripts\start.bat` |
+| Windows update | | `scripts\pull.bat` |
 
 `start` uses headless mode, saved browser profile, and `--exit-on-block` by default. Output goes to `./data/`.
 
@@ -180,6 +181,7 @@ aliexpress-spider/
 │   ├── install.bat          # Windows batch installer
 │   ├── verify.sh / verify.bat
 │   ├── start.sh / start.bat # start crawl after install
+│   ├── pull.bat             # pull latest code (Windows)
 ├── tests/
 ├── data/                    # Runtime output (gitignored)
 ├── .env.example
@@ -259,9 +261,14 @@ scripts\start.bat
 
 ```powershell
 cd C:\src\aliexpress-spider
-git pull
-scripts\install.bat    # 依赖有变时再跑；仅代码更新可跳过
+scripts\pull.bat
 scripts\start.bat
+```
+
+依赖有变更时（`pyproject.toml` / `requirements.txt` 更新了）：
+
+```powershell
+scripts\pull.bat -Install
 ```
 
 若 `git pull` 提示本地有改动，可先暂存：
