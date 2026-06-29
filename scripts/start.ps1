@@ -29,10 +29,11 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host $depCheck
     Write-Error @"
 
-Missing Python dependencies (e.g. em_product from product-validator).
+Missing Python dependencies (e.g. em_product).
 
 Git pull does NOT install packages. Run:
   scripts\install.bat
+  scripts\reinstall.bat   # clean .venv if install still fails
 
 Then:
   scripts\start.bat

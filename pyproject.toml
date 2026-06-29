@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aliexpress-spider"
-version = "0.1.0"
+version = "0.1.1"
 description = "AliExpress product crawler with StandardProduct validation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,7 +17,6 @@ dependencies = [
     "PyYAML>=6.0",
     "python-dotenv>=1.0.0",
     "elasticsearch>=6.0,<7",
-    "product-validator @ https://github.com/AriseshineSky/product-validator/archive/d9cc852e58b73036a20db519dd9494bac5f9a363.zip",
 ]
 
 [project.scripts]
@@ -30,7 +29,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["aliexpress_spider*"]
+include = ["aliexpress_spider*", "em_product*"]
 
 [tool.ruff]
 line-length = 100

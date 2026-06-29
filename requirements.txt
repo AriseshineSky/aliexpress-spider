@@ -5,4 +5,3 @@ checkdigit>=0.5.0
 PyYAML>=6.0
 python-dotenv>=1.0.0
 elasticsearch>=6.0,<7
-product-validator @ https://github.com/AriseshineSky/product-validator/archive/d9cc852e58b73036a20db519dd9494bac5f9a363.zip

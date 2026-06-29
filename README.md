@@ -6,7 +6,7 @@ Playwright-based crawler for [AliExpress US](https://www.aliexpress.us/). Collec
 
 - Category listing crawl with pagination
 - Product detail parsing (API + DOM): title, price, variants, specifications, description HTML
-- `StandardProduct` validation via `product-validator`
+- `StandardProduct` validation via bundled `em_product` (same schema as [product-validator](https://github.com/AriseshineSky/product-validator))
 - Optional Elasticsearch upsert (`ELASTICSEARCH_URL` + `ELASTICSEARCH_INDEX` in `.env`)
 - Headless-first with `--exit-on-block` (stop immediately on captcha)
 - Persistent browser profile for manual verification
@@ -14,7 +14,6 @@ Playwright-based crawler for [AliExpress US](https://www.aliexpress.us/). Collec
 ## Requirements
 
 - Python **3.10+**
-- Network access to GitHub (for `product-validator` zip download; **Git client not required**)
 - Chromium (installed automatically via Playwright)
 
 ## Quick install
@@ -174,6 +173,8 @@ aliexpress-spider/
 │   ├── formatter.py         # StandardProduct builder
 │   ├── html_utils.py        # Description HTML cleanup
 │   └── cli.py               # CLI entrypoint
+├── em_product/              # Bundled StandardProduct schema (from product-validator)
+│   └── product.py
 ├── config/categories.yaml
 ├── scripts/
 │   ├── install.sh           # Linux / macOS installer
@@ -182,6 +183,7 @@ aliexpress-spider/
 │   ├── verify.sh / verify.bat
 │   ├── start.sh / start.bat # start crawl after install
 │   ├── pull.bat             # pull latest code (Windows)
+│   ├── reinstall.sh / reinstall.bat  # clean .venv + reinstall
 ├── tests/
 ├── data/                    # Runtime output (gitignored)
 ├── .env.example
@@ -252,7 +254,7 @@ git clone https://github.com/AriseshineSky/aliexpress-spider.git
 cd aliexpress-spider
 copy .env.example .env
 # 编辑 .env，填入你自己的 ES 地址（仅本机，不进 git）
-scripts\install.bat    # 必须执行：安装 em_product、playwright 等（git 不会装这些）
+scripts\install.bat    # 必须执行：安装 playwright 等（git 不会装这些）
 scripts\verify.bat
 scripts\start.bat
 ```
@@ -269,6 +271,12 @@ scripts\start.bat
 
 ```powershell
 scripts\pull.bat -Install
+```
+
+若 `ModuleNotFoundError: em_product`，执行干净重装：
+
+```powershell
+scripts\reinstall.bat
 ```
 
 若 `git pull` 提示本地有改动，可先暂存：

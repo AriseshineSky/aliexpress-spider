@@ -38,6 +38,9 @@ pip install -e .
 echo "==> Installing Playwright Chromium"
 python -m playwright install chromium
 
+echo "==> Verifying install"
+python -c "import em_product; import aliexpress_spider; print('em_product OK')"
+
 if [ ! -f .env ] && [ -f .env.example ]; then
   cp .env.example .env
   echo "==> Created .env from .env.example (edit before crawling)"
