@@ -81,7 +81,7 @@ def verify(user_data_dir: Path, timeout: int) -> None:
     default=None,
     help="Directory for JSONL output.",
 )
-@click.option("--max-pages", default=5, show_default=True, help="Max listing pages per category.")
+@click.option("--max-pages", default=10, show_default=True, help="Max listing pages per category.")
 @click.option(
     "--max-products",
     default=50,

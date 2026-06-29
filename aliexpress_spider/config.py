@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +59,7 @@ def load_categories(path: Path | str = DEFAULT_CATEGORIES_PATH) -> list[Category
 def build_settings(
     categories_path: Path | str | None = None,
     output_dir: Path | str | None = None,
-    max_pages: int = 5,
+    max_pages: int = 10,
     max_products: int = 50,
     headless: bool = True,
     user_data_dir: Path | str | None = DEFAULT_USER_DATA_DIR,

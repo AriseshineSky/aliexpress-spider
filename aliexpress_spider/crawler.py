@@ -65,58 +65,7 @@ class AliExpressCrawler:
                 for category in self.settings.categories:
                     stats["categories"] += 1
                     logger.info("Crawling category: %s", category.name)
-                    candidates, captcha_hits = await self._collect_listing_candidates(context, category)
-                    stats["listing_candidates"] += len(candidates)
-                    stats["captcha_hits"] += captcha_hits
-
-                    saved_in_category = 0
-                    for candidate in candidates:
-                        if saved_in_category >= self.settings.max_products_per_category:
-                            break
-                        if candidate.product_id in self._seen_product_ids:
-                            continue
-
-                        product = await self._fetch_product(context, candidate)
-                        stats["detail_fetched"] += 1
-                        if not product:
-                            continue
-
-                        if not passes_product_filters(product, self.settings.filters):
-                            logger.info(
-                                "Filtered out %s (price=%s rating=%s reviews=%s sold=%s)",
-                                candidate.product_id,
-                                product.get("price"),
-                                product.get("rating"),
-                                product.get("reviews"),
-                                product.get("sold_count"),
-                            )
-                            continue
-
-                        stats["passed_filters"] += 1
-                        standard = to_standard_product(
-                            product["parsed"],
-                            url=product["url"],
-                            description=product.get("description", ""),
-                            category_name=category.name,
-                        )
-                        if not standard:
-                            logger.warning("StandardProduct validation failed for %s", candidate.product_id)
-                            continue
-
-                        self.writer.write(standard, category.name)
-                        self._seen_product_ids.add(candidate.product_id)
-                        saved_in_category += 1
-                        stats["validated"] += 1
-                        logger.info(
-                            "Saved product %s | %s | $%.2f | rating=%s | reviews=%s | sold=%s",
-                            standard["product_id"],
-                            standard["title"][:60],
-                            standard["price"],
-                            standard["rating"],
-                            standard["reviews"],
-                            standard["sold_count"],
-                        )
-                        await self._sleep()
+                    await self._crawl_category(context, category, stats)
             finally:
                 await context.close()
                 if browser is not None:
@@ -154,11 +103,16 @@ class AliExpressCrawler:
         await context.add_init_script(STEALTH_SCRIPT)
         return context, browser
 
-    async def _collect_listing_candidates(
-        self, context: BrowserContext, category: CategoryConfig
-    ) -> tuple[list[ListingCandidate], int]:
-        candidates: list[ListingCandidate] = []
+    async def _crawl_category(
+        self, context: BrowserContext, category: CategoryConfig, stats: dict[str, int]
+    ) -> None:
+        saved_in_category = 0
         captcha_hits = 0
+        detail_tries = 0
+        filtered_out = 0
+        listing_seen = 0
+        seen_in_category: set[str] = set()
+
         page = await context.new_page()
         collector = ResponseCollector()
 
@@ -168,50 +122,134 @@ class AliExpressCrawler:
         page.on("response", on_response)
 
         try:
-            urls = [
-                category.url,
-                self._wholesale_search_url(category.name),
-            ]
             loaded = False
-            for url in urls:
-                await page.goto(url, wait_until="domcontentloaded", timeout=90000)
-                await self._sleep()
-                if await self._handle_captcha(page, return_url=url):
-                    captcha_hits += 1
-                await page.wait_for_timeout(3000)
-                loaded = True
-                api_candidates = self._candidates_from_collector(collector, category.name)
-                dom_candidates = await self._extract_listing_candidates(page, category.name)
-                merged = self._merge_candidates(api_candidates + dom_candidates)
-                if merged:
-                    candidates.extend(merged)
-                    break
-                logger.info("No listing data from %s, trying fallback URL", url)
+            listing_urls = [category.url, self._wholesale_search_url(category.name)]
 
-            if not loaded:
-                return [], captcha_hits
+            for page_no in range(1, self.settings.max_pages_per_category + 1):
+                if saved_in_category >= self.settings.max_products_per_category:
+                    break
 
-            for page_no in range(2, self.settings.max_pages_per_category + 1):
-                if len(candidates) >= self.settings.max_products_per_category * 3:
-                    break
-                logger.info("Category %s page %s", category.name, page_no)
-                moved = await self._goto_next_page(page)
-                if not moved:
-                    break
-                await self._sleep()
-                if await self._handle_captcha(page, return_url=page.url):
-                    captcha_hits += 1
-                await page.wait_for_timeout(3000)
-                page_candidates = self._merge_candidates(
-                    self._candidates_from_collector(collector, category.name)
-                    + await self._extract_listing_candidates(page, category.name)
-                )
+                if page_no == 1:
+                    page_candidates: list[ListingCandidate] = []
+                    for url in listing_urls:
+                        await page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                        await self._sleep()
+                        if await self._handle_captcha(page, return_url=url):
+                            captcha_hits += 1
+                        await page.wait_for_timeout(3000)
+                        loaded = True
+                        page_candidates = self._filter_listing_candidates(
+                            self._merge_candidates(
+                                self._candidates_from_collector(collector, category.name)
+                                + await self._extract_listing_candidates(page, category.name)
+                            )
+                        )
+                        if page_candidates:
+                            break
+                        logger.info("No listing data from %s, trying fallback URL", url)
+                    if not loaded or not page_candidates:
+                        logger.warning("No listing candidates for category %s", category.name)
+                        break
+                else:
+                    logger.info("Category %s page %s", category.name, page_no)
+                    if not await self._goto_next_page(page):
+                        logger.info("No further listing pages for %s", category.name)
+                        break
+                    await self._sleep()
+                    if await self._handle_captcha(page, return_url=page.url):
+                        captcha_hits += 1
+                    await page.wait_for_timeout(3000)
+                    page_candidates = self._filter_listing_candidates(
+                        self._merge_candidates(
+                            self._candidates_from_collector(collector, category.name)
+                            + await self._extract_listing_candidates(page, category.name)
+                        )
+                    )
+                    if not page_candidates:
+                        logger.info("Empty listing page %s for %s", page_no, category.name)
+                        break
+
+                listing_seen += len(page_candidates)
                 for candidate in page_candidates:
-                    if candidate.product_id not in {c.product_id for c in candidates}:
-                        candidates.append(candidate)
+                    if saved_in_category >= self.settings.max_products_per_category:
+                        break
+                    if candidate.product_id in self._seen_product_ids:
+                        continue
+                    if candidate.product_id in seen_in_category:
+                        continue
+                    seen_in_category.add(candidate.product_id)
+                    detail_tries += 1
+
+                    product = await self._fetch_product(context, candidate)
+                    stats["detail_fetched"] += 1
+                    if not product:
+                        continue
+
+                    if not passes_product_filters(product, self.settings.filters):
+                        filtered_out += 1
+                        logger.info(
+                            "Filtered out %s (price=%s rating=%s reviews=%s sold=%s)",
+                            candidate.product_id,
+                            product.get("price"),
+                            product.get("rating"),
+                            product.get("reviews"),
+                            product.get("sold_count"),
+                        )
+                        continue
+
+                    stats["passed_filters"] += 1
+                    standard = to_standard_product(
+                        product["parsed"],
+                        url=product["url"],
+                        description=product.get("description", ""),
+                        category_name=category.name,
+                    )
+                    if not standard:
+                        logger.warning("StandardProduct validation failed for %s", candidate.product_id)
+                        continue
+
+                    self.writer.write(standard, category.name)
+                    self._seen_product_ids.add(candidate.product_id)
+                    saved_in_category += 1
+                    stats["validated"] += 1
+                    logger.info(
+                        "Saved product %s | %s | $%.2f | rating=%s | reviews=%s | sold=%s",
+                        standard["product_id"],
+                        standard["title"][:60],
+                        standard["price"],
+                        standard["rating"],
+                        standard["reviews"],
+                        standard["sold_count"],
+                    )
+                    await self._sleep()
         finally:
             await page.close()
 
+        stats["listing_candidates"] += listing_seen
+        stats["captcha_hits"] += captcha_hits
+        logger.info(
+            "Category %s done: saved %s/%s (listing=%s, detail_tries=%s, filtered=%s, captcha=%s)",
+            category.name,
+            saved_in_category,
+            self.settings.max_products_per_category,
+            listing_seen,
+            detail_tries,
+            filtered_out,
+            captcha_hits,
+        )
+        if saved_in_category < self.settings.max_products_per_category:
+            logger.warning(
+                "Category %s below quota. Strict filters (rating>=%s reviews>=%s sold>=%s) "
+                "or listing exhaustion. Try --max-pages or lower --min-rating/--min-reviews/--min-sold.",
+                category.name,
+                self.settings.filters.min_rating,
+                self.settings.filters.min_reviews,
+                self.settings.filters.min_sold_count,
+            )
+
+    def _filter_listing_candidates(
+        self, candidates: list[ListingCandidate]
+    ) -> list[ListingCandidate]:
         filtered = [
             candidate
             for candidate in candidates
@@ -219,13 +257,11 @@ class AliExpressCrawler:
         ]
         if not filtered and candidates:
             logger.info(
-                "Listing filters removed all %s candidates for %s; keeping unfiltered pool for detail checks",
+                "Listing filters removed all %s candidates; keeping unfiltered pool for detail checks",
                 len(candidates),
-                category.name,
             )
             filtered = candidates
-
-        return filtered[: self.settings.max_products_per_category * 3], captcha_hits
+        return filtered
 
     def _wholesale_search_url(self, category_name: str) -> str:
         slug = quote(category_name.lower().replace("&", "and").replace(",", "").replace(" ", "-"))
