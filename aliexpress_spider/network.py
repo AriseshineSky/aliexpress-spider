@@ -52,8 +52,16 @@ def _normalize_image(url: str) -> str:
 
 @dataclass
 class ResponseCollector:
+    max_search_payloads: int = 30
+    max_pdp_payloads: int = 10
     pdp_payloads: list[dict[str, Any]] = field(default_factory=list)
     search_payloads: list[dict[str, Any]] = field(default_factory=list)
+
+    def clear_search(self) -> None:
+        self.search_payloads.clear()
+
+    def clear_pdp(self) -> None:
+        self.pdp_payloads.clear()
 
     async def handle_response(self, response) -> None:
         url = response.url
@@ -68,6 +76,8 @@ class ResponseCollector:
             return
         if "mtop.aliexpress.pdp.pc.query" in url or "pdp.pc.query" in url:
             self.pdp_payloads.append(payload)
+            if len(self.pdp_payloads) > self.max_pdp_payloads:
+                del self.pdp_payloads[: -self.max_pdp_payloads]
         if any(
             marker in url
             for marker in (
@@ -77,6 +87,8 @@ class ResponseCollector:
             )
         ):
             self.search_payloads.append(payload)
+            if len(self.search_payloads) > self.max_search_payloads:
+                del self.search_payloads[: -self.max_search_payloads]
 
     def attach(self, page) -> None:
         page.on("response", lambda response: self._schedule(page, response))

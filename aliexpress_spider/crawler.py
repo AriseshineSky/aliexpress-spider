@@ -65,7 +65,19 @@ class AliExpressCrawler:
                 for category in self.settings.categories:
                     stats["categories"] += 1
                     logger.info("Crawling category: %s", category.name)
-                    await self._crawl_category(context, category, stats)
+                    await self._close_extra_pages(context)
+                    try:
+                        await self._crawl_category(context, category, stats)
+                    except Exception as exc:
+                        if "ERR_INSUFFICIENT_RESOURCES" not in str(exc):
+                            raise
+                        logger.error(
+                            "Skipping category %s after browser resource exhaustion: %s",
+                            category.name,
+                            exc,
+                        )
+                        await self._close_extra_pages(context)
+                        await asyncio.sleep(10)
             finally:
                 await context.close()
                 if browser is not None:
@@ -116,11 +128,17 @@ class AliExpressCrawler:
 
         page = await context.new_page()
         collector = ResponseCollector()
+        detail_page = await context.new_page()
+        detail_collector = ResponseCollector()
 
-        async def on_response(response) -> None:
+        async def on_listing_response(response) -> None:
             await collector.handle_response(response)
 
-        page.on("response", on_response)
+        async def on_detail_response(response) -> None:
+            await detail_collector.handle_response(response)
+
+        page.on("response", on_listing_response)
+        detail_page.on("response", on_detail_response)
 
         try:
             loaded = False
@@ -141,7 +159,7 @@ class AliExpressCrawler:
                 if page_no == 1:
                     page_candidates: list[ListingCandidate] = []
                     for url in listing_urls:
-                        await page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                        await self._safe_goto(page, url, context=context)
                         await self._sleep()
                         if await self._handle_captcha(page, return_url=url):
                             captcha_hits += 1
@@ -188,8 +206,14 @@ class AliExpressCrawler:
                         continue
                     seen_in_category.add(candidate.product_id)
                     detail_tries += 1
+                    detail_collector.clear_pdp()
 
-                    product = await self._fetch_product(context, candidate)
+                    product = await self._fetch_product(
+                        candidate,
+                        detail_page=detail_page,
+                        detail_collector=detail_collector,
+                        context=context,
+                    )
                     stats["detail_fetched"] += 1
                     if not product:
                         continue
@@ -231,7 +255,10 @@ class AliExpressCrawler:
                         standard["sold_count"],
                     )
                     await self._sleep()
+
+                collector.clear_search()
         finally:
+            await detail_page.close()
             await page.close()
 
         stats["listing_candidates"] += listing_seen
@@ -414,34 +441,33 @@ class AliExpressCrawler:
                 continue
         return False
 
-    async def _fetch_product(self, context: BrowserContext, candidate: ListingCandidate) -> dict | None:
-        page = await context.new_page()
-        collector = ResponseCollector()
-
-        async def on_response(response) -> None:
-            await collector.handle_response(response)
-
-        page.on("response", on_response)
-
+    async def _fetch_product(
+        self,
+        candidate: ListingCandidate,
+        *,
+        detail_page: Page,
+        detail_collector: ResponseCollector,
+        context: BrowserContext,
+    ) -> dict | None:
         url = candidate.url
         if "gatewayAdapt" not in url:
             url = f"{url}?gatewayAdapt=glo2usa"
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            await self._safe_goto(detail_page, url, context=context)
             await self._sleep()
-            if await self._handle_captcha(page, return_url=url):
-                await page.reload(wait_until="domcontentloaded", timeout=90000)
+            if await self._handle_captcha(detail_page, return_url=url):
+                await detail_page.reload(wait_until="domcontentloaded", timeout=90000)
                 await self._sleep()
 
             legacy_data = None
-            run_params = await page.evaluate(
+            run_params = await detail_page.evaluate(
                 "() => (window.runParams && window.runParams.data) ? window.runParams.data : null"
             )
             if run_params and self.parser.is_product_exist(run_params):
                 legacy_data = run_params
 
             fallback_legacy = None
-            for payload in collector.pdp_payloads:
+            for payload in detail_collector.pdp_payloads:
                 adapted = adapt_payload_to_legacy(payload)
                 if not adapted or not self.parser.is_product_exist(adapted):
                     continue
@@ -470,7 +496,7 @@ class AliExpressCrawler:
                 parsed["sold_count"] = candidate.sold_count
 
             page_content = await self._fetch_page_content(
-                page,
+                detail_page,
                 pc_desc_url=self.parser.get_description_url(legacy_data),
             )
             description = page_content.get("description") or ""
@@ -492,8 +518,48 @@ class AliExpressCrawler:
         except Exception as exc:
             logger.warning("Failed to fetch %s: %s", candidate.url, exc)
             return None
-        finally:
-            await page.close()
+
+    async def _close_extra_pages(
+        self, context: BrowserContext, *keep: Page
+    ) -> None:
+        keep_ids = {id(page) for page in keep}
+        for open_page in list(context.pages):
+            if id(open_page) in keep_ids:
+                continue
+            try:
+                await open_page.close()
+            except Exception as exc:
+                logger.debug("Failed to close stray page: %s", exc)
+
+    async def _safe_goto(
+        self,
+        page: Page,
+        url: str,
+        *,
+        context: BrowserContext | None = None,
+        retries: int = 3,
+    ) -> None:
+        last_error: Exception | None = None
+        for attempt in range(1, retries + 1):
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                return
+            except Exception as exc:
+                last_error = exc
+                message = str(exc)
+                if "ERR_INSUFFICIENT_RESOURCES" not in message or attempt >= retries:
+                    raise
+                logger.warning(
+                    "Browser resource exhaustion on goto (attempt %s/%s): %s",
+                    attempt,
+                    retries,
+                    url,
+                )
+                if context is not None:
+                    await self._close_extra_pages(context, page)
+                await asyncio.sleep(3 * attempt)
+        if last_error is not None:
+            raise last_error
 
     async def _fetch_page_content(
         self, page: Page, *, pc_desc_url: str = ""
