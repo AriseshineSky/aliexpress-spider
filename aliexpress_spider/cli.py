@@ -81,12 +81,22 @@ def verify(user_data_dir: Path, timeout: int) -> None:
     default=None,
     help="Directory for JSONL output.",
 )
-@click.option("--max-pages", default=10, show_default=True, help="Max listing pages per category.")
+@click.option(
+    "--max-pages",
+    default=10,
+    show_default=True,
+    help="Max listing pages per category (0 = paginate until the last page).",
+)
 @click.option(
     "--max-products",
     default=50,
     show_default=True,
-    help="Max validated products per category.",
+    help="Max validated products per category (0 = no limit).",
+)
+@click.option(
+    "--all-products",
+    is_flag=True,
+    help="Full category crawl: all listing pages, no per-category product limit.",
 )
 @click.option("--max-price", default=100.0, show_default=True, help="Maximum price in USD.")
 @click.option("--min-rating", default=4.4, show_default=True, help="Minimum review rating.")
@@ -136,8 +146,17 @@ def crawl(
     exit_on_block: bool,
     no_es: bool,
     shuffle_categories: bool,
+    all_products: bool,
 ) -> None:
     """Crawl AliExpress categories and export StandardProduct JSONL."""
+    if all_products:
+        max_pages = 0
+        max_products = 0
+    if max_pages < 0:
+        raise click.BadParameter("--max-pages must be >= 0 (0 = all pages).")
+    if max_products < 0:
+        raise click.BadParameter("--max-products must be >= 0 (0 = unlimited).")
+
     settings = build_settings(
         categories_path=categories_path,
         output_dir=output_dir,
@@ -161,6 +180,14 @@ def crawl(
     click.echo(f"  reviews >= {settings.filters.min_reviews}")
     click.echo(f"  sold_count >= {settings.filters.min_sold_count}")
     click.echo(f"Categories: {len(settings.categories)}")
+    if settings.max_products_per_category <= 0:
+        click.echo("Max products per category: unlimited")
+    else:
+        click.echo(f"Max products per category: {settings.max_products_per_category}")
+    if settings.max_pages_per_category <= 0:
+        click.echo("Max listing pages per category: all pages")
+    else:
+        click.echo(f"Max listing pages per category: {settings.max_pages_per_category}")
     if shuffle_categories:
         click.echo(f"Category order: {', '.join(c.name for c in settings.categories)}")
     click.echo(f"Headless: {settings.headless}")

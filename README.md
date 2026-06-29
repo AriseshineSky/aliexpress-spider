@@ -105,6 +105,14 @@ Extra crawl options are passed through:
 .\scripts\start.bat --max-pages 3 --max-products 20 --no-es
 ```
 
+**Full crawl** (every listing page in every category, no product cap):
+
+```bash
+./scripts/start.sh --all-products --shuffle-categories --headed --no-exit-on-block --captcha-wait 120
+```
+
+Equivalent: `--max-pages 0 --max-products 0`
+
 ### 1. Pass captcha once (recommended)
 
 ```bash

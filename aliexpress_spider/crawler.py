@@ -112,6 +112,7 @@ class AliExpressCrawler:
         filtered_out = 0
         listing_seen = 0
         seen_in_category: set[str] = set()
+        page_no = 0
 
         page = await context.new_page()
         collector = ResponseCollector()
@@ -125,8 +126,16 @@ class AliExpressCrawler:
             loaded = False
             listing_urls = [category.url, self._wholesale_search_url(category.name)]
 
-            for page_no in range(1, self.settings.max_pages_per_category + 1):
-                if saved_in_category >= self.settings.max_products_per_category:
+            while True:
+                page_no += 1
+                if self._page_limit_reached(page_no):
+                    logger.info(
+                        "Reached max listing pages (%s) for %s",
+                        self.settings.max_pages_per_category,
+                        category.name,
+                    )
+                    break
+                if self._product_quota_reached(saved_in_category):
                     break
 
                 if page_no == 1:
@@ -171,7 +180,7 @@ class AliExpressCrawler:
 
                 listing_seen += len(page_candidates)
                 for candidate in page_candidates:
-                    if saved_in_category >= self.settings.max_products_per_category:
+                    if self._product_quota_reached(saved_in_category):
                         break
                     if candidate.product_id in self._seen_product_ids:
                         continue
@@ -227,25 +236,42 @@ class AliExpressCrawler:
 
         stats["listing_candidates"] += listing_seen
         stats["captcha_hits"] += captcha_hits
+        quota_label = (
+            "unlimited"
+            if self.settings.max_products_per_category <= 0
+            else str(self.settings.max_products_per_category)
+        )
         logger.info(
-            "Category %s done: saved %s/%s (listing=%s, detail_tries=%s, filtered=%s, captcha=%s)",
+            "Category %s done: saved %s/%s (pages=%s, listing=%s, detail_tries=%s, filtered=%s, captcha=%s)",
             category.name,
             saved_in_category,
-            self.settings.max_products_per_category,
+            quota_label,
+            page_no,
             listing_seen,
             detail_tries,
             filtered_out,
             captcha_hits,
         )
-        if saved_in_category < self.settings.max_products_per_category:
+        if (
+            self.settings.max_products_per_category > 0
+            and saved_in_category < self.settings.max_products_per_category
+        ):
             logger.warning(
                 "Category %s below quota. Strict filters (rating>=%s reviews>=%s sold>=%s) "
-                "or listing exhaustion. Try --max-pages or lower --min-rating/--min-reviews/--min-sold.",
+                "or listing exhaustion. Try --max-pages, --all-products, or lower --min-rating/--min-reviews/--min-sold.",
                 category.name,
                 self.settings.filters.min_rating,
                 self.settings.filters.min_reviews,
                 self.settings.filters.min_sold_count,
             )
+
+    def _product_quota_reached(self, saved_in_category: int) -> bool:
+        limit = self.settings.max_products_per_category
+        return limit > 0 and saved_in_category >= limit
+
+    def _page_limit_reached(self, page_no: int) -> bool:
+        limit = self.settings.max_pages_per_category
+        return limit > 0 and page_no > limit
 
     def _filter_listing_candidates(
         self, candidates: list[ListingCandidate]

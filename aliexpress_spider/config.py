@@ -36,7 +36,7 @@ DEFAULT_USER_DATA_DIR = Path.home() / ".aliexpress-spider" / "browser"
 class CrawlSettings:
     categories: list[CategoryConfig]
     filters: CrawlFilters
-    max_pages_per_category: int = 5
+    max_pages_per_category: int = 10
     max_products_per_category: int = 50
     headless: bool = True
     output_dir: Path = DEFAULT_OUTPUT_DIR
