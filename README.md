@@ -248,11 +248,11 @@ git push -u origin main
 
 ```powershell
 cd C:\src
-git clone git@github.com:YOUR_USER/aliexpress-spider.git
+git clone https://github.com/AriseshineSky/aliexpress-spider.git
 cd aliexpress-spider
 copy .env.example .env
 # 编辑 .env，填入你自己的 ES 地址（仅本机，不进 git）
-scripts\install.bat
+scripts\install.bat    # 必须执行：安装 em_product、playwright 等（git 不会装这些）
 scripts\verify.bat
 scripts\start.bat
 ```
