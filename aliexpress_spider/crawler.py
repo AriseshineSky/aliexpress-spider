@@ -31,6 +31,16 @@ STEALTH_SCRIPT = """
 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
 window.chrome = window.chrome || { runtime: {} };
 """
+BROWSER_DEAD_MARKERS = (
+    "ERR_INSUFFICIENT_RESOURCES",
+    "Target page, context or browser has been closed",
+    "Browser has been closed",
+    "TargetClosedError",
+)
+CHROMIUM_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-dev-shm-usage",
+]
 
 
 class CrawlBlockedError(RuntimeError):
@@ -65,23 +75,31 @@ class AliExpressCrawler:
                 for category in self.settings.categories:
                     stats["categories"] += 1
                     logger.info("Crawling category: %s", category.name)
-                    await self._close_extra_pages(context)
-                    try:
-                        await self._crawl_category(context, category, stats)
-                    except Exception as exc:
-                        if "ERR_INSUFFICIENT_RESOURCES" not in str(exc):
-                            raise
-                        logger.error(
-                            "Skipping category %s after browser resource exhaustion: %s",
-                            category.name,
-                            exc,
-                        )
-                        await self._close_extra_pages(context)
-                        await asyncio.sleep(10)
+                    for attempt in range(2):
+                        try:
+                            await self._close_extra_pages(context)
+                            await self._crawl_category(context, category, stats)
+                            break
+                        except Exception as exc:
+                            if not self._is_browser_dead_error(exc):
+                                raise
+                            if attempt == 0:
+                                logger.error(
+                                    "Browser failure on %s, restarting once: %s",
+                                    category.name,
+                                    exc,
+                                )
+                                await self._safe_close_browser(context, browser)
+                                await asyncio.sleep(5)
+                                context, browser = await self._create_browser_context(playwright)
+                                continue
+                            logger.error(
+                                "Skipping category %s after browser restart failed: %s",
+                                category.name,
+                                exc,
+                            )
             finally:
-                await context.close()
-                if browser is not None:
-                    await browser.close()
+                await self._safe_close_browser(context, browser)
 
         self.writer.close()
         if self.writer.es_writer is not None:
@@ -90,7 +108,6 @@ class AliExpressCrawler:
         return stats
 
     async def _create_browser_context(self, playwright) -> tuple[BrowserContext, Browser | None]:
-        launch_args = ["--disable-blink-features=AutomationControlled"]
         if self.settings.user_data_dir:
             context = await playwright.chromium.launch_persistent_context(
                 user_data_dir=str(self.settings.user_data_dir),
@@ -98,14 +115,14 @@ class AliExpressCrawler:
                 user_agent=USER_AGENT,
                 locale="en-US",
                 viewport={"width": 1440, "height": 900},
-                args=launch_args,
+                args=CHROMIUM_ARGS,
             )
             await context.add_init_script(STEALTH_SCRIPT)
             return context, None
 
         browser = await playwright.chromium.launch(
             headless=self.settings.headless,
-            args=launch_args,
+            args=CHROMIUM_ARGS,
         )
         context = await browser.new_context(
             user_agent=USER_AGENT,
@@ -258,8 +275,8 @@ class AliExpressCrawler:
 
                 collector.clear_search()
         finally:
-            await detail_page.close()
-            await page.close()
+            await self._safe_close_page(detail_page)
+            await self._safe_close_page(page)
 
         stats["listing_candidates"] += listing_seen
         stats["captcha_hits"] += captcha_hits
@@ -519,17 +536,47 @@ class AliExpressCrawler:
             logger.warning("Failed to fetch %s: %s", candidate.url, exc)
             return None
 
+    def _is_browser_dead_error(self, exc: BaseException) -> bool:
+        if exc.__class__.__name__ == "TargetClosedError":
+            return True
+        message = str(exc)
+        return any(marker in message for marker in BROWSER_DEAD_MARKERS)
+
+    async def _safe_close_page(self, page: Page | None) -> None:
+        if page is None:
+            return
+        try:
+            await page.close()
+        except Exception as exc:
+            logger.debug("Ignoring page close error: %s", exc)
+
+    async def _safe_close_browser(
+        self, context: BrowserContext | None, browser: Browser | None
+    ) -> None:
+        if context is not None:
+            try:
+                await context.close()
+            except Exception as exc:
+                logger.debug("Ignoring context close error: %s", exc)
+        if browser is not None:
+            try:
+                await browser.close()
+            except Exception as exc:
+                logger.debug("Ignoring browser close error: %s", exc)
+
     async def _close_extra_pages(
         self, context: BrowserContext, *keep: Page
     ) -> None:
         keep_ids = {id(page) for page in keep}
-        for open_page in list(context.pages):
+        try:
+            open_pages = list(context.pages)
+        except Exception as exc:
+            logger.debug("Could not list browser pages: %s", exc)
+            return
+        for open_page in open_pages:
             if id(open_page) in keep_ids:
                 continue
-            try:
-                await open_page.close()
-            except Exception as exc:
-                logger.debug("Failed to close stray page: %s", exc)
+            await self._safe_close_page(open_page)
 
     async def _safe_goto(
         self,
