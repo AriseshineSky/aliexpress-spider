@@ -30,14 +30,17 @@ chmod +x scripts/install.sh scripts/start.sh scripts/verify.sh
 
 ### Windows
 
-Double-click `scripts/install.bat`, or in PowerShell:
+Double-click `run.bat` (headed browser, installs if needed), or use scripts:
 
 ```powershell
-cd C:\path\to\crawlers\aliexpress-spider
+cd C:\path\to\aliexpress-spider
+.\run.bat                        # install + headed crawl
 .\scripts\install.bat
 .\scripts\verify.bat             # first time: pass captcha
-.\scripts\start.bat              # start crawl
+.\scripts\start.bat              # headless crawl
 ```
+
+`run.bat` uses `--headed --no-exit-on-block --captcha-wait 120` by default.
 
 ### Manual install
 
@@ -166,6 +169,8 @@ Each line is a `StandardProduct` JSON object plus a `category` field. Multi-vari
 
 ```
 aliexpress-spider/
+├── run.bat                  # Windows one-click install + headed crawl
+├── verify.bat               # Windows captcha verify (wrapper)
 ├── aliexpress_spider/       # Python package
 │   ├── crawler.py           # Playwright crawl loop
 │   ├── parser.py            # PDP data parser
@@ -254,9 +259,7 @@ git clone https://github.com/AriseshineSky/aliexpress-spider.git
 cd aliexpress-spider
 copy .env.example .env
 # 编辑 .env，填入你自己的 ES 地址（仅本机，不进 git）
-scripts\install.bat    # 必须执行：安装 playwright 等（git 不会装这些）
-scripts\verify.bat
-scripts\start.bat
+run.bat                  # 或 scripts\install.bat + scripts\start.bat
 ```
 
 **以后更新代码：**
