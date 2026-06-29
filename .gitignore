@@ -1,0 +1,109 @@
+# =============================================================================
+# Secrets — never commit
+# =============================================================================
+.env
+.env.*
+!.env.example
+
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+*.manifest
+*.spec
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / lint / type-check caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# =============================================================================
+# Crawler runtime output
+# =============================================================================
+data/*
+!data/.gitkeep
+
+*.jsonl
+*.jsonl.*
+*.log
+*.log.*
+
+# Local debug / manual review dumps
+data/analysis/
+data/manual_review/
+data/test_run/
+data/crawl/
+scratch/
+tmp/
+temp/
+
+# =============================================================================
+# Browser / Playwright (local only)
+# =============================================================================
+.browser/
+aliexpress-spider-browser/
+playwright/.cache/
+playwright-report/
+.ms-playwright/
+test-results/
+
+# User profile is usually outside repo (~/.aliexpress-spider/browser)
+# ignore if copied into project folder
+browser-profile/
+
+# =============================================================================
+# OS / editor / IDE
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+.idea/
+.vscode/
+*.code-workspace
+.cursor/
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+
+# =============================================================================
+# Package managers (optional local lockfiles)
+# =============================================================================
+uv.lock
+Pipfile.lock
+poetry.lock
+
+# =============================================================================
+# Archives / downloads
+# =============================================================================
+*.zip
+*.tar
+*.tar.gz
+*.tgz
