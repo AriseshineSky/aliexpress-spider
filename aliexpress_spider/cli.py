@@ -116,6 +116,11 @@ def verify(user_data_dir: Path, timeout: int) -> None:
     is_flag=True,
     help="Disable Elasticsearch export even when .env is configured.",
 )
+@click.option(
+    "--shuffle-categories",
+    is_flag=True,
+    help="Randomize category crawl order on each run.",
+)
 def crawl(
     categories_path: Path | None,
     output_dir: Path | None,
@@ -130,6 +135,7 @@ def crawl(
     user_data_dir: Path | None,
     exit_on_block: bool,
     no_es: bool,
+    shuffle_categories: bool,
 ) -> None:
     """Crawl AliExpress categories and export StandardProduct JSONL."""
     settings = build_settings(
@@ -142,6 +148,7 @@ def crawl(
         captcha_wait_seconds=captcha_wait,
         exit_on_block=exit_on_block,
         enable_elasticsearch=not no_es,
+        shuffle_categories=shuffle_categories,
         max_price_usd=max_price,
         min_rating=min_rating,
         min_reviews=min_reviews,
@@ -154,6 +161,8 @@ def crawl(
     click.echo(f"  reviews >= {settings.filters.min_reviews}")
     click.echo(f"  sold_count >= {settings.filters.min_sold_count}")
     click.echo(f"Categories: {len(settings.categories)}")
+    if shuffle_categories:
+        click.echo(f"Category order: {', '.join(c.name for c in settings.categories)}")
     click.echo(f"Headless: {settings.headless}")
     click.echo(f"Exit on block: {settings.exit_on_block}")
     if settings.elasticsearch:

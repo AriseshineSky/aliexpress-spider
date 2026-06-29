@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import random
 from pathlib import Path
 from typing import Any
 
@@ -66,14 +66,18 @@ def build_settings(
     exit_on_block: bool = True,
     enable_elasticsearch: bool = True,
     elasticsearch: ElasticsearchSettings | None = None,
+    shuffle_categories: bool = False,
     **filter_overrides: Any,
 ) -> CrawlSettings:
     filters = CrawlFilters(**{k: v for k, v in filter_overrides.items() if v is not None})
     es_settings = elasticsearch
     if es_settings is None and enable_elasticsearch:
         es_settings = load_elasticsearch_settings()
+    categories = load_categories(categories_path or DEFAULT_CATEGORIES_PATH)
+    if shuffle_categories:
+        random.shuffle(categories)
     return CrawlSettings(
-        categories=load_categories(categories_path or DEFAULT_CATEGORIES_PATH),
+        categories=categories,
         filters=filters,
         max_pages_per_category=max_pages,
         max_products_per_category=max_products,
