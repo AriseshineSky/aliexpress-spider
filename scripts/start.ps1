@@ -16,7 +16,27 @@ $venvPython = Join-Path $Root ".venv\Scripts\python.exe"
 $userDataDir = if ($env:USER_DATA_DIR) { $env:USER_DATA_DIR } else { Join-Path $env:USERPROFILE ".aliexpress-spider\browser" }
 
 if (-not (Test-Path $venvPython)) {
-    Write-Error ".venv not found. Run scripts\install.bat first."
+    Write-Error @"
+.venv not found.
+
+Git clone only downloads source code. Run the installer first:
+  scripts\install.bat
+"@
+}
+
+$depCheck = & $venvPython -c "import em_product, playwright" 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host $depCheck
+    Write-Error @"
+
+Missing Python dependencies (e.g. em_product from product-validator).
+
+Git pull does NOT install packages. Run:
+  scripts\install.bat
+
+Then:
+  scripts\start.bat
+"@
 }
 
 $argsList = @(
